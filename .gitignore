@@ -1,0 +1,16 @@
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+housekeeping_log.txt
+*.tmp
+.DS_Store
+Thumbs.db
