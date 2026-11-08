@@ -131,7 +131,7 @@ class HousekeepingApp:
         self.root.title("File Organizer")
         self.root.geometry("1020x760")
         self.root.minsize(880, 620)
-        self.root.configure(bg="#101418")
+        self.root.configure(bg="#16151B")
         self.root.overrideredirect(True)
 
         self.root_vars: dict[str, tk.BooleanVar] = {}
@@ -231,8 +231,8 @@ class HousekeepingApp:
         self.resize_handle = tk.Label(
             root,
             text="◢",
-            bg="#171e27",
-            fg="#99a8b5",
+            bg="#18171D",
+            fg="#858587",
             font=("Segoe UI", 12),
             cursor="sizing",
             bd=0,

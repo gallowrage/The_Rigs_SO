@@ -7,6 +7,7 @@ Zero external dependencies (Python Standard Library only).
 
 import ast
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import sys
 from typing import Iterable, List, Sequence, Set
@@ -17,6 +18,7 @@ IGNORED_DIRS: Set[str] = {
     ".venv",
     "venv",
     "env",
+    ".tox",
     "node_modules",
     "dist",
     "build",
@@ -28,7 +30,21 @@ IGNORED_DIRS: Set[str] = {
     "scratch",
     "donors",
     "awesome-gamedev-skills",
+    "ida-free-mcp-main",
+    "packages",
+    "Master_Archive",
 }
+
+_BRANCH_NODES = (
+    ast.If,
+    ast.While,
+    ast.For,
+    ast.AsyncFor,
+    ast.ExceptHandler,
+    ast.With,
+    ast.AsyncWith,
+    ast.IfExp,
+)
 
 
 @dataclass(frozen=True)
@@ -39,26 +55,23 @@ class ComplexityViolation:
     score: int
 
 
+def _calc_child_complexity(node: ast.AST) -> int:
+    """Recursively counts complexity branches while isolating nested function definitions."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        return 0
+    score = 0
+    if isinstance(node, _BRANCH_NODES):
+        score += 1
+    elif isinstance(node, ast.BoolOp):
+        score += len(node.values) - 1
+    for child in ast.iter_child_nodes(node):
+        score += _calc_child_complexity(child)
+    return score
+
+
 def _calc_node_complexity(node: ast.AST) -> int:
     """Calculates McCabe cyclomatic complexity for a function AST node (CC <= 9)."""
-    score = 1
-    for child in ast.walk(node):
-        if isinstance(
-            child,
-            (
-                ast.If,
-                ast.While,
-                ast.For,
-                ast.AsyncFor,
-                ast.ExceptHandler,
-                ast.With,
-                ast.AsyncWith,
-            ),
-        ):
-            score += 1
-        elif isinstance(child, ast.BoolOp):
-            score += len(child.values) - 1
-    return score
+    return 1 + sum(_calc_child_complexity(child) for child in ast.iter_child_nodes(node))
 
 
 def audit_file_complexity(filepath: Path, max_cc: int = 9) -> List[ComplexityViolation]:
@@ -86,23 +99,30 @@ def audit_file_complexity(filepath: Path, max_cc: int = 9) -> List[ComplexityVio
 
 
 def _collect_python_files(target_path: Path) -> List[Path]:
-    """Collects Python files under target_path while excluding ignored directories."""
+    """Collects Python files under target_path while pruning ignored directories."""
     if target_path.is_file() and target_path.suffix == ".py":
         return [target_path]
     if not target_path.is_dir():
         return []
-    return [
-        p
-        for p in target_path.rglob("*.py")
-        if not any(part in IGNORED_DIRS for part in p.parts)
-    ]
+    collected: List[Path] = []
+    for root, dirs, files in os.walk(target_path):
+        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS]
+        for fname in files:
+            if fname.endswith(".py"):
+                collected.append(Path(root) / fname)
+    return collected
 
 
 def audit_targets(targets: Iterable[Path], max_cc: int = 9) -> int:
     """Audits one or more file or directory targets for McCabe complexity violations."""
     files: List[Path] = []
+    seen: Set[Path] = set()
     for target_path in targets:
-        files.extend(_collect_python_files(target_path))
+        for candidate in _collect_python_files(target_path):
+            resolved = candidate.resolve()
+            if resolved not in seen:
+                seen.add(resolved)
+                files.append(candidate)
 
     all_violations: List[ComplexityViolation] = []
     for f in files:
