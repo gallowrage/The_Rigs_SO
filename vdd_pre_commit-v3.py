@@ -348,7 +348,7 @@ def check_manifest_dependencies(file_path: Path) -> List[Violation]:
 
 
 def get_staged_python_files() -> List[Path]:
-    """Retrieve staged Python files from Git index."""
+    """Retrieve staged Python and manifest files from Git index."""
     try:
         res = subprocess.run(
             ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"],
@@ -356,16 +356,26 @@ def get_staged_python_files() -> List[Path]:
             text=True,
             check=True,
         )
-        files = [Path(line.strip()) for line in res.stdout.splitlines() if line.strip().endswith(".py")]
+        valid_names = {"requirements.txt", "requirements-dev.txt"}
+        files = [
+            Path(line.strip())
+            for line in res.stdout.splitlines()
+            if line.strip().endswith((".py", ".pyw")) or Path(line.strip()).name.lower() in valid_names
+        ]
         return [f for f in files if f.exists()]
     except Exception:
         return []
 
 
 def run_py_compile(file_path: Path) -> Tuple[bool, Optional[Violation]]:
-    """Run bytecode compilation check."""
+    """Run bytecode compilation check using an isolated temporary target."""
+    if file_path.suffix.lower() not in {".py", ".pyw"}:
+        return True, None
+    import tempfile
     try:
-        py_compile.compile(str(file_path), doraise=True)
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            cfile = str(Path(tmp_dir) / f"{file_path.stem}.pyc")
+            py_compile.compile(str(file_path), cfile=cfile, doraise=True)
         return True, None
     except py_compile.PyCompileError as exc:
         msg = str(exc.msg) if hasattr(exc, "msg") else str(exc)
@@ -389,8 +399,10 @@ def run_py_compile(file_path: Path) -> Tuple[bool, Optional[Violation]]:
         )
 
 
-def run_ast_analysis(file_path: Path, max_complexity: int = 10) -> Tuple[bool, List[Violation]]:
+def run_ast_analysis(file_path: Path, max_complexity: int = 9) -> Tuple[bool, List[Violation]]:
     """Perform AST parsing, slopsquatting, and static complexity analysis."""
+    if file_path.suffix.lower() not in {".py", ".pyw"}:
+        return True, []
     try:
         content = file_path.read_text(encoding="utf-8")
         lines = content.splitlines()
@@ -576,10 +588,11 @@ def parse_cli_args():
     parser = argparse.ArgumentParser(
         description="Verifiability-Driven Development (VDD) Pre-Commit Gate v3.0 with AST007 & RSTD Feedback"
     )
-    parser.add_argument("files", nargs="*", help="Explicit Python files to evaluate (defaults to git staged files).")
+    parser.add_argument("files", nargs="*", default=[], help="Explicit Python files to evaluate (defaults to git staged files).")
+    parser.add_argument("--files", dest="flag_files", nargs="+", default=[], help="Explicit Python files or directories via --files flag.")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON schema for RSTD self-healing.")
     parser.add_argument("--report-file", type=str, help="Write RSTD JSON report to specified file path.")
-    parser.add_argument("--max-complexity", type=int, default=10, help="Max cyclomatic complexity threshold (default: 10).")
+    parser.add_argument("--max-complexity", type=int, default=9, help="Max cyclomatic complexity threshold (default: 9).")
     return parser.parse_args()
 
 
@@ -615,7 +628,28 @@ def _write_summary_report(report_file: Optional[str], summary_payload: Dict[str,
 
 
 def _should_skip_dir(dirname: str) -> bool:
-    skip_set = {".git", ".venv", "node_modules", "__pycache__", ".tox", "dist", "build"}
+    skip_set = {
+        ".git",
+        ".venv",
+        "venv",
+        "env",
+        ".tox",
+        "node_modules",
+        "__pycache__",
+        "dist",
+        "build",
+        "forensics",
+        ".agents",
+        "Agent-Reach",
+        "REA_Engine",
+        "archive",
+        "scratch",
+        "donors",
+        "awesome-gamedev-skills",
+        "ida-free-mcp-main",
+        "packages",
+        "Master_Archive",
+    }
     return dirname in skip_set
 
 
@@ -629,22 +663,37 @@ def _collect_py_files_from_dir(directory: Path) -> List[Path]:
     return collected
 
 
+def _is_valid_target_file(path: Path) -> bool:
+    if not path.is_file():
+        return False
+    return path.suffix.lower() in {".py", ".pyw"} or path.name.lower() in {"requirements.txt", "requirements-dev.txt"}
+
+
 def _expand_target_files(raw_targets: List[Path]) -> List[Path]:
-    """Expands directories into contained Python files and filters valid .py/.pyw targets."""
-    expanded: List[Path] = []
+    """Expands directories into contained Python files and deduplicates resolved paths."""
+    candidates: List[Path] = []
     for t in raw_targets:
         if not t.exists():
             continue
         if t.is_dir():
-            expanded.extend(_collect_py_files_from_dir(t))
-        elif t.is_file() and t.suffix in {".py", ".pyw"}:
-            expanded.append(t)
-    return expanded
+            candidates.extend(_collect_py_files_from_dir(t))
+        elif _is_valid_target_file(t):
+            candidates.append(t)
+
+    deduped: List[Path] = []
+    seen: Set[Path] = set()
+    for cand in candidates:
+        resolved = cand.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            deduped.append(cand)
+    return deduped
 
 
 def main():
     args = parse_cli_args()
-    raw_targets = [Path(f) for f in args.files] if args.files else get_staged_python_files()
+    combined_files = list(args.files) + list(args.flag_files)
+    raw_targets = [Path(f) for f in combined_files] if combined_files else get_staged_python_files()
     target_files = _expand_target_files(raw_targets)
 
     if not target_files:

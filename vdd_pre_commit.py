@@ -588,7 +588,8 @@ def parse_cli_args():
     parser = argparse.ArgumentParser(
         description="Verifiability-Driven Development (VDD) Pre-Commit Gate v3.0 with AST007 & RSTD Feedback"
     )
-    parser.add_argument("files", nargs="*", help="Explicit Python files to evaluate (defaults to git staged files).")
+    parser.add_argument("files", nargs="*", default=[], help="Explicit Python files to evaluate (defaults to git staged files).")
+    parser.add_argument("--files", dest="flag_files", nargs="+", default=[], help="Explicit Python files or directories via --files flag.")
     parser.add_argument("--json", action="store_true", help="Output machine-readable JSON schema for RSTD self-healing.")
     parser.add_argument("--report-file", type=str, help="Write RSTD JSON report to specified file path.")
     parser.add_argument("--max-complexity", type=int, default=9, help="Max cyclomatic complexity threshold (default: 9).")
@@ -691,7 +692,8 @@ def _expand_target_files(raw_targets: List[Path]) -> List[Path]:
 
 def main():
     args = parse_cli_args()
-    raw_targets = [Path(f) for f in args.files] if args.files else get_staged_python_files()
+    combined_files = list(args.files) + list(args.flag_files)
+    raw_targets = [Path(f) for f in combined_files] if combined_files else get_staged_python_files()
     target_files = _expand_target_files(raw_targets)
 
     if not target_files:

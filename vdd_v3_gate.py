@@ -144,8 +144,21 @@ def audit_target(target_path: Path, max_cc: int = 9) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """CLI entrypoint supporting single or multiple file/directory arguments."""
-    args = [a for a in (argv if argv is not None else sys.argv[1:]) if not a.startswith("-")]
+    """CLI entrypoint supporting single or multiple file/directory arguments, including --files."""
+    raw_args = list(argv if argv is not None else sys.argv[1:])
+    args: List[str] = []
+    i = 0
+    while i < len(raw_args):
+        a = raw_args[i]
+        if a == "--files":
+            i += 1
+            while i < len(raw_args) and not raw_args[i].startswith("-"):
+                args.append(raw_args[i])
+                i += 1
+            continue
+        elif not a.startswith("-"):
+            args.append(a)
+        i += 1
     targets = [Path(a) for a in args] if args else [Path(".")]
     return audit_targets(targets)
 
