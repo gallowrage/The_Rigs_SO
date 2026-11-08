@@ -648,7 +648,19 @@ def main():
     target_files = _expand_target_files(raw_targets)
 
     if not target_files:
-        if not args.json:
+        if args.json:
+            empty_payload = {
+                "version": "3.0",
+                "passed": True,
+                "overall_passed": True,
+                "timestamp": sys.platform,
+                "files_analyzed": 0,
+                "total_violations": 0,
+                "records": [],
+                "files": [],
+            }
+            print(json.dumps(empty_payload, indent=2))
+        else:
             print("[VDD v3.0] No target Python files detected to evaluate. Clean exit.")
         sys.exit(0)
 
@@ -663,10 +675,12 @@ def main():
     summary_payload = {
         "version": "3.0",
         "passed": all_passed,
+        "overall_passed": all_passed,
         "timestamp": sys.platform,
         "files_analyzed": len(overall_records),
         "total_violations": len(all_violations),
         "records": overall_records,
+        "files": overall_records,
     }
 
     _write_summary_report(args.report_file, summary_payload, args.json)

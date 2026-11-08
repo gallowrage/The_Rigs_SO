@@ -341,10 +341,24 @@ class RSTDRepairRunner:
             print(f"      [!] Splice error: {e}")
             return False
 
+    def _repair_failed_file(self, file_entry: Dict[str, Any]) -> int:
+        """Executes isolated subtask repairs for a single failed file entry."""
+        raw_path = file_entry.get("file_path") or file_entry.get("file") or ""
+        file_path = Path(raw_path)
+        repair_units = file_entry.get("rstd_repair_context", {}).get("isolated_repair_units", [])
+        repair_units.sort(key=lambda u: u.get("target_line", 0), reverse=True)
+
+        print(f"\n--> File: {file_path.name} ({len(repair_units)} isolated subtask repair units)")
+        for unit in repair_units:
+            success = self.execute_typed_judgment_operator(unit, file_path)
+            target_bucket = "repaired_subtasks" if success else "failed_subtasks"
+            self.state_manager[target_bucket].append(unit["target_rule"])
+        return len(repair_units)
+
     def run_repair_pipeline(self, target_files: Optional[List[str]] = None) -> bool:
         """Executes the full RSTD self-healing loop with selective subtask retries."""
         print("=" * 68)
-        print(" Runtime-Structured Task Decomposition (RSTD) Repair Loop (v2.0)")
+        print(" Runtime-Structured Task Decomposition (RSTD) Repair Loop (v3.0)")
         print(f" Active CLI Binary: {self.agy_bin}")
         print("=" * 68)
 
@@ -352,33 +366,18 @@ class RSTDRepairRunner:
             print(f"\n[CYCLE {cycle}/{self.max_retries}] Running deterministic VDD pre-commit gate...")
             report = self.run_deterministic_gate(target_files)
 
-            if report.get("overall_passed"):
+            if report.get("overall_passed", report.get("passed", False)):
                 print("\n[+] SUCCESS: Deterministic VDD Gate 100% PASSED!")
                 print(f"[+] Total subtasks repaired: {len(self.state_manager['repaired_subtasks'])}")
                 if self.state_manager["dispatch_methods"]:
                     print(f"[+] Remediation Methods Employed: {self.state_manager['dispatch_methods']}")
                 return True
 
-            failed_files = [f for f in report.get("files", []) if not f.get("passed")]
+            file_records = report.get("files", report.get("records", []))
+            failed_files = [f for f in file_records if not f.get("passed")]
             print(f"[-] Gate flagged {len(failed_files)} file(s) requiring remediation.")
 
-            total_subtasks_in_cycle = 0
-            for file_entry in failed_files:
-                file_path = Path(file_entry["file_path"])
-                repair_units = file_entry.get("rstd_repair_context", {}).get("isolated_repair_units", [])
-
-                # Sort bottom-up to prevent line drift
-                repair_units.sort(key=lambda u: u.get("target_line", 0), reverse=True)
-
-                print(f"\n--> File: {file_path.name} ({len(repair_units)} isolated subtask repair units)")
-                for unit in repair_units:
-                    total_subtasks_in_cycle += 1
-                    success = self.execute_typed_judgment_operator(unit, file_path)
-                    if success:
-                        self.state_manager["repaired_subtasks"].append(unit["target_rule"])
-                    else:
-                        self.state_manager["failed_subtasks"].append(unit["target_rule"])
-
+            total_subtasks_in_cycle = sum(self._repair_failed_file(fe) for fe in failed_files)
             if total_subtasks_in_cycle == 0:
                 print("[!] No automatable subtask repair units found. Manual intervention required.")
                 break
