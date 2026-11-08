@@ -609,6 +609,23 @@ def _process_archive_dir_entry(
     return record, True
 
 
+def _is_eligible_archive_source(
+    source_path: Path,
+    resolved_source: Path,
+    file_size: int,
+    archive_root: Path,
+    extension_categories: dict[str, str],
+    selected_categories: set[str],
+    large_file_threshold_bytes: int,
+) -> bool:
+    if _is_path_inside(resolved_source, archive_root):
+        return False
+    category = extension_categories.get(source_path.suffix.lower())
+    if category in selected_categories:
+        return True
+    return file_size >= large_file_threshold_bytes
+
+
 def _scan_files_in_dir(
     current_path: Path,
     file_names: list[str],
@@ -632,13 +649,10 @@ def _scan_files_in_dir(
             continue
         folder_record["file_count"] = int(folder_record["file_count"]) + 1
         folder_record["size_bytes"] = int(folder_record["size_bytes"]) + file_size
-        if _is_path_inside(resolved_source, archive_root):
-            continue
-        category = extension_categories.get(source_path.suffix.lower())
-        if category not in selected_categories:
-            category = None
-        is_large = file_size >= large_file_threshold_bytes
-        if category is None and not is_large:
+        if not _is_eligible_archive_source(
+            source_path, resolved_source, file_size, archive_root,
+            extension_categories, selected_categories, large_file_threshold_bytes
+        ):
             continue
         source_key = str(resolved_source).casefold()
         if source_key in seen_sources:

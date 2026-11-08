@@ -153,23 +153,23 @@ class HousekeepingApp:
         self._is_running = False
         self._close_when_finished = False
 
-        self.dark_bg = "#101418"
-        self.panel_bg = "#1b2430"
-        self.panel_alt = "#222d38"
-        self.text_fg = "#edf3fa"
-        self.muted_fg = "#b4c2d1"
-        self.accent = "#4ea1ff"
-        self.success = "#1f7a5d"
-        self.warn = "#d98b2b"
-        self.fail = "#d95b5b"
+        self.dark_bg = "#16151B"
+        self.panel_bg = "#18171D"
+        self.panel_alt = "#1D1C22"
+        self.text_fg = "#F0F0F2"
+        self.muted_fg = "#C8C8CA"
+        self.accent = "#38BDF8"
+        self.success = "#10B981"
+        self.warn = "#F59E0B"
+        self.fail = "#EF4444"
 
-        self.title_bar = tk.Frame(root, bg="#171e27", height=42, highlightthickness=0)
+        self.title_bar = tk.Frame(root, bg="#0F0E14", height=42, highlightthickness=0)
         self.title_bar.pack(fill="x")
         self.title_bar_title = tk.Label(
             self.title_bar,
             text="File Organizer",
-            bg="#171e27",
-            fg="#f4f7fb",
+            bg="#0F0E14",
+            fg="#F0F0F2",
             font=("Segoe UI", 10, "bold"),
             anchor="w",
             padx=14,
@@ -180,11 +180,11 @@ class HousekeepingApp:
             self.title_bar,
             text="—",
             width=3,
-            bg="#171e27",
-            fg="#edf3fa",
+            bg="#0F0E14",
+            fg="#F0F0F2",
             bd=0,
-            activebackground="#2a333d",
-            activeforeground="#ffffff",
+            activebackground="#26252C",
+            activeforeground="#FFFFFF",
             command=self.root.iconify,
             relief="flat",
             highlightthickness=0,
@@ -192,21 +192,21 @@ class HousekeepingApp:
         )
         self.minimize_button.pack(side="right", padx=(0, 4), pady=6)
         self.minimize_button.bind(
-            "<Enter>", lambda event: self.minimize_button.configure(bg="#2a333d")
+            "<Enter>", lambda event: self.minimize_button.configure(bg="#26252C")
         )
         self.minimize_button.bind(
-            "<Leave>", lambda event: self.minimize_button.configure(bg="#171e27")
+            "<Leave>", lambda event: self.minimize_button.configure(bg="#0F0E14")
         )
 
         self.close_button = tk.Button(
             self.title_bar,
             text="✕",
             width=3,
-            bg="#171e27",
-            fg="#edf3fa",
+            bg="#0F0E14",
+            fg="#F0F0F2",
             bd=0,
-            activebackground="#a33a3a",
-            activeforeground="#ffffff",
+            activebackground="#EF4444",
+            activeforeground="#FFFFFF",
             command=self.close_app,
             relief="flat",
             highlightthickness=0,
@@ -214,10 +214,10 @@ class HousekeepingApp:
         )
         self.close_button.pack(side="right", padx=(0, 10), pady=6)
         self.close_button.bind(
-            "<Enter>", lambda event: self.close_button.configure(bg="#a33a3a")
+            "<Enter>", lambda event: self.close_button.configure(bg="#EF4444")
         )
         self.close_button.bind(
-            "<Leave>", lambda event: self.close_button.configure(bg="#171e27")
+            "<Leave>", lambda event: self.close_button.configure(bg="#0F0E14")
         )
 
         self.title_bar.bind("<ButtonPress-1>", self._start_drag)
@@ -982,6 +982,20 @@ class HousekeepingApp:
             "Ready when you are.", color=self.success, banner="STATUS: READY"
         )
 
+    def _parse_large_file_mb(self) -> float | None:
+        try:
+            large_file_mb = float(self.large_file_var.get())
+            if large_file_mb <= 0:
+                raise ValueError
+            return large_file_mb
+        except ValueError:
+            messagebox.showwarning(
+                "Invalid size threshold",
+                "Enter a positive number of megabytes for the large-file flag.",
+                parent=self.root,
+            )
+            return None
+
     def _validate_run_inputs(
         self, execute: bool
     ) -> tuple[bool, str, float, list[str], list[str], list[dict[str, str | int | bool]]]:
@@ -994,23 +1008,11 @@ class HousekeepingApp:
             )
             return False, "", 0.0, [], [], []
 
-        try:
-            large_file_mb = float(self.large_file_var.get())
-            if large_file_mb <= 0:
-                raise ValueError
-        except ValueError:
-            messagebox.showwarning(
-                "Invalid size threshold",
-                "Enter a positive number of megabytes for the large-file flag.",
-                parent=self.root,
-            )
+        large_file_mb = self._parse_large_file_mb()
+        if large_file_mb is None:
             return False, "", 0.0, [], [], []
 
-        categories = [
-            category
-            for category, variable in self.category_vars.items()
-            if variable.get()
-        ]
+        categories = [c for c, var in self.category_vars.items() if var.get()]
         if not categories:
             messagebox.showwarning(
                 "No categories selected",
@@ -1021,9 +1023,9 @@ class HousekeepingApp:
 
         roots = self.selected_roots()
         selected_operations = [
-            self.plan_operations[index]
-            for index in sorted(self.checked_plan_items)
-            if index < len(self.plan_operations)
+            self.plan_operations[idx]
+            for idx in sorted(self.checked_plan_items)
+            if idx < len(self.plan_operations)
         ]
         if not execute and not roots:
             messagebox.showwarning(
@@ -1039,7 +1041,6 @@ class HousekeepingApp:
                 parent=self.root,
             )
             return False, "", 0.0, [], [], []
-
         if self._is_running:
             messagebox.showwarning(
                 "Run in progress",
@@ -1087,6 +1088,35 @@ class HousekeepingApp:
             Path("housekeeping_log.txt"),
         )
 
+    def _execute_selected_moves(
+        self,
+        selected_operations: list[dict[str, str | int | bool]],
+        log_fn,
+        progress_fn,
+    ) -> list[dict[str, str]]:
+        log_fn(f"Starting native file move for {len(selected_operations)} files...\n")
+        total = len(selected_operations)
+        moved_results: list[dict[str, str]] = []
+        for index, operation in enumerate(selected_operations, start=1):
+            if self._cancel_event.is_set():
+                raise InterruptedError("Cancelled by user")
+            source = Path(str(operation["source"]))
+            target = Path(str(operation["target"])).resolve()
+            if not source.is_file():
+                log_fn(f"[SKIP] Source missing: {source}\n")
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            counter = 1
+            actual_target = target
+            while actual_target.exists():
+                actual_target = target.with_name(f"{target.stem}_{counter}{target.suffix}")
+                counter += 1
+            shutil.move(str(source), str(actual_target))
+            log_fn(f"Moved: {source.name} -> {actual_target}\n")
+            moved_results.append({"source": str(source), "target": str(actual_target)})
+            progress_fn(index, total, str(source))
+        return moved_results
+
     def _worker_execute(
         self,
         execute: bool,
@@ -1115,7 +1145,6 @@ class HousekeepingApp:
                 log(f"Starting in-process scan across {len(roots)} root folders...\n")
                 log(f"Archive destination: {dest_path}\n")
                 log(f"Active categories: {', '.join(categories)}\n\n")
-
                 inventory = scan_archive_inventory(
                     [Path(r) for r in roots],
                     destination_root=dest_path,
@@ -1127,42 +1156,14 @@ class HousekeepingApp:
                 )
                 if self._cancel_event.is_set():
                     raise InterruptedError("Cancelled by user")
-
                 self._work_queue.put(("INVENTORY", inventory))
                 log(f"\nScan complete: {len(inventory['files'])} planned files mapped in RAM.\n")
                 self._work_queue.put(("SUCCESS", "Scan completed successfully."))
             else:
-                log(f"Starting native file move for {len(selected_operations)} files...\n")
-                total = len(selected_operations)
-                moved_results = []
-                for index, operation in enumerate(selected_operations, start=1):
-                    if self._cancel_event.is_set():
-                        raise InterruptedError("Cancelled by user")
-
-                    source = Path(str(operation["source"]))
-                    target = Path(str(operation["target"])).resolve()
-
-                    if not source.is_file():
-                        log(f"[SKIP] Source missing: {source}\n")
-                        continue
-
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    # Collision-safe renaming: {stem}_{counter}{suffix}
-                    counter = 1
-                    actual_target = target
-                    while actual_target.exists():
-                        actual_target = target.with_name(f"{target.stem}_{counter}{target.suffix}")
-                        counter += 1
-
-                    shutil.move(str(source), str(actual_target))
-                    log(f"Moved: {source.name} -> {actual_target}\n")
-                    moved_results.append({"source": str(source), "target": str(actual_target)})
-                    progress(index, total, str(source))
-
+                moved_results = self._execute_selected_moves(selected_operations, log, progress)
                 self._work_queue.put(("EXECUTE_DONE", moved_results))
                 log(f"\nOrganization complete: {len(moved_results)} files moved safely.\n")
                 self._work_queue.put(("SUCCESS", f"Successfully moved {len(moved_results)} files."))
-
         except InterruptedError:
             log("\nHousekeeping operation cancelled by user.\n")
             self._work_queue.put(("CANCELLED", "Operation cancelled by user."))
